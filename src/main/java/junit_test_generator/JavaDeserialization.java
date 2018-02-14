@@ -30,39 +30,9 @@ public class JavaDeserialization {
 				,args);
 	}
 	
-	public static Type[] getTypesOfParameters(String methodName, String className, String packageName) throws Exception {
-		// Get parameter type for class method.
-		//try {
-			Class target_class = Class.forName(packageName + "." + className);
-			Method[] method = target_class.getDeclaredMethods();
 
-			for (Method m : method) {
-				if (!m.getName().equals(methodName)) {
-					continue;
-				}
-
-				Type[] types = m.getParameterTypes();
-				return types;
-			}
-			return null;
-	}
 			
-	public static Class getReturnType(String methodName, String className, String packageName) throws Exception {
-		// Get parameter type for class method.
-		//try {
-			Class target_class = Class.forName(packageName + "." + className);
-			Method[] method = target_class.getDeclaredMethods();
 
-			for (Method m : method) {
-				if (!m.getName().equals(methodName)) {
-					continue;
-				}
-
-				Class type = m.getReturnType();
-				return type;
-			}
-			return null;
-	}
 	public static Object execute(String methodName, String className, String packageName, String[] args) throws Exception {
 		// Get parameter type for class method.
 		//try {

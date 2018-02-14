@@ -1,6 +1,9 @@
 package junit_test_generator;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
+import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
@@ -34,8 +37,9 @@ public class QuixBugsTestGenerator {
 
 	public static int TIMEOUT = 2000;
 
-	@SuppressWarnings("rawtypes")
-	public void createTestCase(List<String> inputs, String program, String output) throws Exception {
+	@SuppressWarnings({ "rawtypes", "unchecked" })
+	public void createTestCase(List<String> inputs, String program, String output, String packageName)
+			throws Exception {
 		System.out.println("generating test case for program : " + program);
 
 		boolean includecomplete = false;
@@ -48,7 +52,6 @@ public class QuixBugsTestGenerator {
 			outputBinDirectory.mkdirs();
 		}
 		final Launcher comp = new Launcher();
-		comp.addInputResource("/Users/matias/develop/code/qf/src/main/java/");
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.getEnvironment().setShouldCompile(true);
 		comp.buildModel();
@@ -74,34 +77,24 @@ public class QuixBugsTestGenerator {
 
 			ctm.addThrownType(f.createCtTypeReference(Exception.class));
 
-			String packageName = "correct_java_programs";
-
 			JsonArray jelement = (JsonArray) new JsonParser().parse(input_i);
 			JsonElement jsonInput = jelement.get(0);
 			JsonElement jsonOutPutExpected = jelement.get(1);
 			boolean isOutputDecimal = (jsonOutPutExpected.toString().contains(".0"));
 			String expected = QuixFixLauncher.removeSymbols(jsonOutPutExpected.toString());
 
-			// String[] command = QuixFixLauncher.prepareCommand(program,
-			// jsonInput);
-			Type[] parametersTypes = JavaDeserialization.getTypesOfParameters(program, program.toUpperCase(),
+			Type[] parametersTypes = getTypesOfParameters(program, program.toUpperCase(),
 					packageName);
-			
-			Class returnType = JavaDeserialization.getReturnType(program, program.toUpperCase(),
-					packageName);
-			// String realArguments = "\"" + packageName + "\"," + "\"" +
-			// program + "\",\""
-			// + input_i.replace("\"", "\\\"");
 
+			Class returnType = getReturnType(program, program.toUpperCase(), packageName);
+
+		
+			
 			CtCodeSnippetStatement stmtInvProgramUnderRepair = f.Core().createCodeSnippetStatement();
-			stmtInvProgramUnderRepair.setValue(
-					//returnType.getCanonicalName()
-					 "Object result = " + packageName + "." + program.toUpperCase() + "."
-					+ program.toLowerCase() +"("+ (getParametersString(parametersTypes,  jsonInput))+ ")");
-			// execute(String methodName, String className, String packageName,
-			// String[] args)
-			// /+ (createCommand(program.toLowerCase(), program.toUpperCase(),
-			// packageName, command)));
+			stmtInvProgramUnderRepair.setValue(returnType.getCanonicalName()
+					+ " result = " + packageName + "." + program.toUpperCase() + "."
+					+ program.toLowerCase() + "(" + (getParametersString(parametersTypes, jsonInput)) + ")");
+
 			block.addStatement(stmtInvProgramUnderRepair);
 
 			CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
@@ -110,13 +103,8 @@ public class QuixBugsTestGenerator {
 					+ "result," + (!isOutputDecimal) + ")");
 			block.addStatement(stmtCall);
 			CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
-			//String expectedObject = getParameterObject(jsonOutPutExpected, returnType.getName());
-			String expectedString =  expected.replace("\"","\\\"");
-			stmtAssert.setValue("org.junit.Assert.assertEquals(" 
-		+ "\"" + QuixFixLauncher.format(expected, (!isOutputDecimal))
-				
-			+ "\"" 
-					+ ", resultFormatted)");
+			stmtAssert.setValue("org.junit.Assert.assertEquals(" + "\""
+					+ QuixFixLauncher.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
 			block.addStatement(stmtAssert);
 
 			AnnotationFactory af = f.Annotation();
@@ -124,7 +112,6 @@ public class QuixBugsTestGenerator {
 
 		}
 		System.out.println("Class :\n" + ctclass);
-		// comp.addInputResource("/Users/matias/develop/code/qf/target/classes/");
 
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.setSourceOutputDirectory(outputSrcDirectory);
@@ -141,7 +128,63 @@ public class QuixBugsTestGenerator {
 
 	}
 
+	/**
+	 * By Sophie Ye, and refactored.
+	 * 
+	 * @param types
+	 * @param input
+	 * @return
+	 */
+	public static String getParametersString(Type[] types, JsonElement input) {
 
+		JsonArray inputArray;
+		if (input.isJsonArray()) {
+			inputArray = input.getAsJsonArray();
+		} else {
+			inputArray = new JsonArray();
+			inputArray.add(input);
+		}
+		String parameterStr = "";
+		if (types.length == inputArray.size()) {
+			for (int i = 0; i < types.length; i++) {
+				JsonElement elementJSON = inputArray.get(i);
+				String thisType = types[i].getTypeName();
+				parameterStr += getParameterObject(elementJSON, thisType) + ",";
+			}
+		} else {
+			System.out.println("Incompatible types: Object cannot be converted.");
+		}
+		return parameterStr.substring(0, parameterStr.length() - 1);
+	}
+
+	private static String getParameterObject(JsonElement jsonElement, String thisType) {
+		String parameterStr = "";
+		if ("java.util.ArrayList".equals(thisType)) {
+			String arrStr = jsonElement.toString().replace("[", "(").replace("]", ")");
+			parameterStr = parameterStr + "new " + thisType + "(java.util.Arrays.asList" + arrStr + ")";
+		} else if (thisType.contains("[]")) {
+			String arrStr = jsonElement.toString().replace("[", "{").replace("]", "}");
+			parameterStr = parameterStr + "new " + thisType + "" + arrStr;
+		} else if ("java.lang.Object".equals(thisType)) {
+
+			if (jsonElement instanceof Iterable) {
+				List<String> arguments = new ArrayList<>();
+				Iterable it = (Iterable) jsonElement;
+				for (Object object : it) {
+
+					arguments.add(getParameterObject((JsonElement) object, "java.lang.Object"));
+				}
+				String arrStr = arguments.toString().replace("[", "(").replace("]", ")");
+				parameterStr = "new java.util.ArrayList(java.util.Arrays.asList" + arrStr + ")";
+			} else {
+				//
+				parameterStr = (jsonElement.toString());
+			}
+		} else {
+			parameterStr = parameterStr + "(" + thisType + ")" + jsonElement.toString();
+		}
+		return parameterStr;
+	}
 
 	/**
 	 * First argument: folder where tests are written
@@ -153,6 +196,12 @@ public class QuixBugsTestGenerator {
 
 		String ROOT_DIR = null;
 		String ROOT_SOURCES_DIR = null;
+
+		String packageName = null;
+
+		System.out.println(
+				"Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3: package of buggy subject");
+
 		if (args.length > 0) {
 
 			File froot = new File(args[0]);
@@ -176,7 +225,14 @@ public class QuixBugsTestGenerator {
 		} else {
 			DIR_JSON = ROOT_DIR + "/src/test/resources/json_testcases/";
 		}
-		///
+
+		if (args.length >= 3) {
+
+			packageName = args[2];
+		} else {
+			packageName = "correct_java_programs";
+		}
+
 		String[] names = new String[] { "bitcount", "bucketsort",
 
 				"find_first_in_sorted", "find_in_sorted", "flatten", "gcd", "get_factors", "hanoi",
@@ -186,77 +242,75 @@ public class QuixBugsTestGenerator {
 				"subsequences", "to_base", "wrap", };
 		for (String prog : names) {
 
-			List<String> tests = QuixFixLauncher.read(DIR_JSON + File.separator + prog + ".json");
+			List<String> tests = read(DIR_JSON + File.separator + prog + ".json");
 
 			String programToExecute = prog;
 
 			String out = ROOT_SOURCES_DIR;
 			QuixBugsTestGenerator ct = new QuixBugsTestGenerator();
-			ct.createTestCase(tests, programToExecute, out);
+			ct.createTestCase(tests, programToExecute, out, packageName);
 
 		}
 
 	}
-/**
- * By Sophie Ye.
- * @param types
- * @param input
- * @return
- */
-	public static String getParametersString(Type[] types, JsonElement input) {
 
-		JsonArray inputArray;
-		if (input.isJsonArray()) {
-			inputArray = input.getAsJsonArray();
-		} else {
-			inputArray = new JsonArray();
-			inputArray.add(input);
-		}
-		String parameterStr = "";
-		if (types.length == inputArray.size()) {
-			for (int i = 0; i < types.length; i++) {
-				JsonElement elementJSON = inputArray.get(i);
-				String thisType = types[i].getTypeName();
-				parameterStr += getParameterObject(elementJSON, thisType)+ ",";
+	/**
+	 * Each line is a test case
+	 * 
+	 * @param filejson
+	 * @return
+	 */
+	public static List<String> read(String filejson) {
+		List<String> s = new ArrayList<>();
+		try {
+			File file = new File(filejson);
+			FileReader fileReader = new FileReader(file);
+			BufferedReader bufferedReader = new BufferedReader(fileReader);
+			String line;
+			while ((line = bufferedReader.readLine()) != null) {
+				s.add(line);
+
 			}
-		} else {
-			System.out.println("Incompatible types: Object cannot be converted.");
+			fileReader.close();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
-		return parameterStr.substring(0, parameterStr.length() - 1);
+		return s;
 	}
 
+	public static Type[] getTypesOfParameters(String methodName, String className, String packageName)
+			throws Exception {
+		// Get parameter type for class method.
+		// try {
+		Class target_class = Class.forName(packageName + "." + className);
+		Method[] method = target_class.getDeclaredMethods();
 
-
-private static String getParameterObject( JsonElement jsonElement, String thisType) {
-	String parameterStr = "";
-	if ("java.util.ArrayList".equals(thisType)) {
-		String arrStr = jsonElement.toString().replace("[", "(").replace("]", ")");
-		parameterStr = parameterStr + "new " + thisType + "(java.util.Arrays.asList" + arrStr + ")";
-	} else if (thisType.contains("[]")) {
-		String arrStr = jsonElement.toString().replace("[", "{").replace("]", "}");
-		parameterStr = parameterStr + "new " + thisType + "" + arrStr ;
-	} else if ("java.lang.Object".equals(thisType)) {
-		//new JsonParser().parse(j.toString());
-		//String str = jsonElement.toString().replace("\"", "\\\"");
-		//parameterStr = parameterStr + "new com.google.gson.JsonParser().parse(\"" + str + "\")";
-		
-		if (jsonElement instanceof Iterable) {
-			List<String> arguments = new ArrayList<>();
-			Iterable it = (Iterable) jsonElement;
-			for (Object object : it) {
-				//Recursive?	
-				arguments.add(getParameterObject((JsonElement) object, "java.lang.Object"));//object.toString()
+		for (Method m : method) {
+			if (!m.getName().equals(methodName)) {
+				continue;
 			}
-			String arrStr = arguments.toString().replace("[", "(").replace("]", ")");
-			parameterStr = "new java.util.ArrayList(java.util.Arrays.asList" + arrStr + ")";
-		} else {
-			//
-			parameterStr = (jsonElement.toString());
+
+			Type[] types = m.getParameterTypes();
+			return types;
 		}
-	} else {
-		parameterStr = parameterStr + "(" + thisType + ")" + jsonElement.toString() ;
+		return null;
 	}
-	return parameterStr;
-}
+
+	public static Class getReturnType(String methodName, String className, String packageName) throws Exception {
+		// Get parameter type for class method.
+		// try {
+		Class target_class = Class.forName(packageName + "." + className);
+		Method[] method = target_class.getDeclaredMethods();
+
+		for (Method m : method) {
+			if (!m.getName().equals(methodName)) {
+				continue;
+			}
+
+			Class type = m.getReturnType();
+			return type;
+		}
+		return null;
+	}
 
 }
