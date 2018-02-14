@@ -36,6 +36,8 @@ public class QuixFixLauncher {
 		return command;
 	}
 
+	
+	
 	/**
 	 * Each line is a test case
 	 * 
@@ -63,7 +65,7 @@ public class QuixFixLauncher {
 	public static String format(Object out, boolean cutDecimal) {
 		Object jsonOutObtained = transformToString(out, cutDecimal);
 
-		String obtained = jsonOutObtained.toString();//removeSymbols(jsonOutObtained.toString());
+		String obtained = removeSymbols(jsonOutObtained.toString());
 		return obtained;
 	}
 
@@ -123,10 +125,8 @@ public class QuixFixLauncher {
 	}
 
 	public static String removeSymbols(String r) {
-		if (r.length() >= 2 && r.charAt(0) == '"' && r.charAt(r.length() - 1) == '"') {
-			r = r.substring(1, r.length() - 1);
-		}
-		r = r.replaceAll("\\(", "[").replaceAll("\\)", "]").replaceAll(" ", "");
+		
+		r = r.replaceAll("\\(", "[").replaceAll("\\)", "]").replace(" ", "").replaceAll("\"","");
 		return r;
 	}
 

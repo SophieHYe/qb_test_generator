@@ -3,6 +3,7 @@ package junit_test_generator;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.List;
 
 import com.google.gson.JsonArray;
@@ -93,8 +94,9 @@ public class QuixBugsTestGenerator {
 			// + input_i.replace("\"", "\\\"");
 
 			CtCodeSnippetStatement stmtInvProgramUnderRepair = f.Core().createCodeSnippetStatement();
-			stmtInvProgramUnderRepair.setValue(returnType.getCanonicalName()
-					+ " result = " + packageName + "." + program.toUpperCase() + "."
+			stmtInvProgramUnderRepair.setValue(
+					//returnType.getCanonicalName()
+					 "Object result = " + packageName + "." + program.toUpperCase() + "."
 					+ program.toLowerCase() +"("+ (getParametersString(parametersTypes,  jsonInput))+ ")");
 			// execute(String methodName, String className, String packageName,
 			// String[] args)
@@ -105,17 +107,16 @@ public class QuixBugsTestGenerator {
 			CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
 
 			stmtCall.setValue("String resultFormatted = " + QuixFixLauncher.class.getCanonicalName() + ".format("
-					+ "result.toString()," + (!isOutputDecimal) + ")");
-			//block.addStatement(stmtCall);
+					+ "result," + (!isOutputDecimal) + ")");
+			block.addStatement(stmtCall);
 			CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
-			String expectedObject = getParameterObject(jsonOutPutExpected, returnType.getName());
-			//String expectedString =  expected.replace("\"","\\\"");
+			//String expectedObject = getParameterObject(jsonOutPutExpected, returnType.getName());
+			String expectedString =  expected.replace("\"","\\\"");
 			stmtAssert.setValue("org.junit.Assert.assertEquals(" 
-	//	+ "\"" 
-					+ 
-					expectedObject//expectedString 
-	//		+ "\"" 
-					+ ", result)");
+		+ "\"" + QuixFixLauncher.format(expected, (!isOutputDecimal))
+				
+			+ "\"" 
+					+ ", resultFormatted)");
 			block.addStatement(stmtAssert);
 
 			AnnotationFactory af = f.Annotation();
@@ -226,20 +227,34 @@ public class QuixBugsTestGenerator {
 
 
 
-private static String getParameterObject( JsonElement j, String thisType) {
+private static String getParameterObject( JsonElement jsonElement, String thisType) {
 	String parameterStr = "";
 	if ("java.util.ArrayList".equals(thisType)) {
-		String arrStr = j.toString().replace("[", "(").replace("]", ")");
+		String arrStr = jsonElement.toString().replace("[", "(").replace("]", ")");
 		parameterStr = parameterStr + "new " + thisType + "(java.util.Arrays.asList" + arrStr + ")";
 	} else if (thisType.contains("[]")) {
-		String arrStr = j.toString().replace("[", "{").replace("]", "}");
+		String arrStr = jsonElement.toString().replace("[", "{").replace("]", "}");
 		parameterStr = parameterStr + "new " + thisType + "" + arrStr ;
 	} else if ("java.lang.Object".equals(thisType)) {
-		new JsonParser().parse(j.toString());
-		String str = j.toString().replace("\"", "\\\"");
-		parameterStr = parameterStr + "new com.google.gson.JsonParser().parse(\"" + str + "\")";
+		//new JsonParser().parse(j.toString());
+		//String str = jsonElement.toString().replace("\"", "\\\"");
+		//parameterStr = parameterStr + "new com.google.gson.JsonParser().parse(\"" + str + "\")";
+		
+		if (jsonElement instanceof Iterable) {
+			List<String> arguments = new ArrayList<>();
+			Iterable it = (Iterable) jsonElement;
+			for (Object object : it) {
+				//Recursive?	
+				arguments.add(getParameterObject((JsonElement) object, "java.lang.Object"));//object.toString()
+			}
+			String arrStr = arguments.toString().replace("[", "(").replace("]", ")");
+			parameterStr = "new java.util.ArrayList(java.util.Arrays.asList" + arrStr + ")";
+		} else {
+			//
+			parameterStr = (jsonElement.toString());
+		}
 	} else {
-		parameterStr = parameterStr + "(" + thisType + ")" + j.toString() ;
+		parameterStr = parameterStr + "(" + thisType + ")" + jsonElement.toString() ;
 	}
 	return parameterStr;
 }
