@@ -6,6 +6,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
+import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,6 +37,9 @@ import spoon.support.reflect.code.CtBlockImpl;
 public class QuixBugsTestGenerator {
 
 	public static int TIMEOUT = 2000;
+	public static int DELTA_FLOAT_COMPARISON = 0;
+
+	public static double[] DELTAS_TESTS_SQRT = new double[] { 0.01, 0.5, 0.3, 0.2, 0.01, 0.05, 0.03 };
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
 	public void createTestCase(List<String> inputs, String program, String output, String packageName)
@@ -63,11 +67,11 @@ public class QuixBugsTestGenerator {
 		// ctclass.setParent(p);
 		ctclass.setVisibility(ModifierKind.PUBLIC);
 
-		int i = 0;
+		int i_nr_testcase = 0;
 		for (String input_i : inputs) {
 
 			CtMethod ctm = f.createMethod();
-			ctm.setSimpleName("test_" + (i++));
+			ctm.setSimpleName("test_" + (i_nr_testcase));
 			ctm.setVisibility(ModifierKind.PUBLIC);
 			ctm.setType(f.Type().VOID.unbox());
 			CtBlock block = new CtBlockImpl<>();
@@ -80,36 +84,46 @@ public class QuixBugsTestGenerator {
 			JsonArray jelement = (JsonArray) new JsonParser().parse(input_i);
 			JsonElement jsonInput = jelement.get(0);
 			JsonElement jsonOutPutExpected = jelement.get(1);
-			boolean isOutputDecimal = (jsonOutPutExpected.toString().contains(".0"));
 			String expected = QuixFixLauncher.removeSymbols(jsonOutPutExpected.toString());
 
-			Type[] parametersTypes = getTypesOfParameters(program, program.toUpperCase(),
-					packageName);
+			Type[] parametersTypes = getTypesOfParameters(program, program.toUpperCase(), packageName);
 
 			Class returnType = getReturnType(program, program.toUpperCase(), packageName);
+			boolean isOutputDecimal = returnType.getSimpleName().toLowerCase().equals("double");
 
-		
-			
 			CtCodeSnippetStatement stmtInvProgramUnderRepair = f.Core().createCodeSnippetStatement();
-			stmtInvProgramUnderRepair.setValue(returnType.getCanonicalName()
-					+ " result = " + packageName + "." + program.toUpperCase() + "."
-					+ program.toLowerCase() + "(" + (getParametersString(parametersTypes, jsonInput)) + ")");
+			stmtInvProgramUnderRepair.setValue(
+					returnType.getCanonicalName() + " result = " + packageName + "." + program.toUpperCase() + "."
+							+ program.toLowerCase() + "(" + (getParametersString(parametersTypes, jsonInput)) + ")");
 
 			block.addStatement(stmtInvProgramUnderRepair);
 
-			CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
+			if (isNumber(returnType) || returnType.isPrimitive()) {
+				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
+				if (returnType.getSimpleName().toLowerCase().equals("double")) {
+					stmtAssert.setValue("org.junit.Assert.assertEquals( (" + returnType.getCanonicalName() + ") "
+							+ expected + ", result, " + getFloatComparisonDelta(program, i_nr_testcase) + ")");
+				} else {
+					stmtAssert.setValue("org.junit.Assert.assertEquals( (" + returnType.getCanonicalName() + ") "
+							+ expected + ", result" + ")");
 
-			stmtCall.setValue("String resultFormatted = " + QuixFixLauncher.class.getCanonicalName() + ".format("
-					+ "result," + (!isOutputDecimal) + ")");
-			block.addStatement(stmtCall);
-			CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
-			stmtAssert.setValue("org.junit.Assert.assertEquals(" + "\""
-					+ QuixFixLauncher.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
-			block.addStatement(stmtAssert);
+				}
+				block.addStatement(stmtAssert);
 
+			} else {
+				CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
+
+				stmtCall.setValue("String resultFormatted = " + QuixFixLauncher.class.getCanonicalName() + ".format("
+						+ "result," + (!isOutputDecimal) + ")");
+				block.addStatement(stmtCall);
+				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
+				stmtAssert.setValue("org.junit.Assert.assertEquals(" + "\""
+						+ QuixFixLauncher.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
+				block.addStatement(stmtAssert);
+			}
 			AnnotationFactory af = f.Annotation();
 			af.annotate(ctm, org.junit.Test.class, "timeout", TIMEOUT);
-
+			i_nr_testcase++;
 		}
 		System.out.println("Class :\n" + ctclass);
 
@@ -117,7 +131,6 @@ public class QuixBugsTestGenerator {
 		comp.setSourceOutputDirectory(outputSrcDirectory);
 		comp.getFactory().getEnvironment().setShouldCompile(true);
 		comp.getFactory().getEnvironment().setNoClasspath(true);
-		comp.getModelBuilder().addInputSource(new File("/Users/matias/develop/code/qf/src/main/java/"));
 		comp.getModelBuilder().compile();
 		JDTBasedSpoonCompiler jdtSpoonModelBuilder = new JDTBasedSpoonCompiler(f);
 		jdtSpoonModelBuilder.setSourceOutputDirectory(outputSrcDirectory);
@@ -126,6 +139,11 @@ public class QuixBugsTestGenerator {
 		jdtSpoonModelBuilder.compile(InputType.CTTYPES);
 		jdtSpoonModelBuilder.generateProcessedSourceFiles(OutputType.CLASSES);
 
+	}
+
+	public boolean isNumber(Class type) {
+
+		return Number.class.isAssignableFrom(type);
 	}
 
 	/**
@@ -311,6 +329,15 @@ public class QuixBugsTestGenerator {
 			return type;
 		}
 		return null;
+	}
+
+	private static double getFloatComparisonDelta(String program, int nrTestcase) {
+		if (program.toLowerCase().equals("sqrt")) {
+			return DELTAS_TESTS_SQRT[nrTestcase];
+		} else {
+			return DELTA_FLOAT_COMPARISON;
+		}
+
 	}
 
 }
