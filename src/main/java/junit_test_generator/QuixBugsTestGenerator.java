@@ -63,8 +63,8 @@ public class QuixBugsTestGenerator {
 		String name = program.substring(0, 1).toUpperCase() + program.substring(1) + "Test";
 		CtClass ctclass = f.createClass(name);
 		CtPackage p = f.Core().createPackage();
-		// p.setSimpleName("java_programs_test");
-		// ctclass.setParent(p);
+		 p.setSimpleName("java_programs_test");
+		 ctclass.setParent(p);
 		ctclass.setVisibility(ModifierKind.PUBLIC);
 
 		int i_nr_testcase = 0;
