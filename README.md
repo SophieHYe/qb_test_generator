@@ -3,7 +3,13 @@
 Tests generator of QuixBugs fix:
 [QuixFix](https://github.com/jkoppel/QuixBugs/)
 
-## Usage
+## Generated test cases
+
+[Tests that execute buggy programs](/src/main/java/java_programs_test)
+
+[Tests that execute correct programs](/src/main/java/correct_java_programs_test)
+
+## Usage of Generation tool.
 
 ### Generating testing of buggy version
 
