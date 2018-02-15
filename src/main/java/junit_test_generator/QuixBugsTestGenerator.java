@@ -6,9 +6,10 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
-import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.List;
+
+import org.junit.Ignore;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -40,35 +41,42 @@ public class QuixBugsTestGenerator {
 	public static int DELTA_FLOAT_COMPARISON = 0;
 
 	public static double[] DELTAS_TESTS_SQRT = new double[] { 0.01, 0.5, 0.3, 0.2, 0.01, 0.05, 0.03 };
+	// Test to add anotation ignore: key is program+test_id
+	public static List<String> TEST_T_ADD_IGNORE = java.util.Arrays.asList("LEVENSHTEIN3");
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	public void createTestCase(List<String> inputs, String program, String output, String packageName)
-			throws Exception {
+	public void createTestCases(List<String> inputs, String program, String output, String testPackageName,
+			String subjectsPakcageName, boolean oneFolderPerProgram) throws Exception {
 		System.out.println("generating test case for program : " + program);
 
-		boolean includecomplete = false;
 		File outputBinDirectory = new File(
-				output + ((includecomplete) ? (program + File.separator + "bin" + File.separator) : ""));
+				output + ((oneFolderPerProgram) ? (program + File.separator + "bin" + File.separator) : ""));
 		File outputSrcDirectory = new File(
-				output + ((includecomplete) ? (program + File.separator + "src" + File.separator) : ""));
+				output + ((oneFolderPerProgram) ? (program + File.separator + "src" + File.separator) : ""));
 		outputSrcDirectory.mkdirs();
 		if (!outputBinDirectory.exists()) {
 			outputBinDirectory.mkdirs();
 		}
+
+		System.out.println("Generating test cases at " + outputSrcDirectory);
+		//Initialization of model
 		final Launcher comp = new Launcher();
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.getEnvironment().setShouldCompile(true);
 		comp.buildModel();
 		Factory f = (Factory) comp.getFactory();
+		
+		//Creation of test class
 		String name = program.substring(0, 1).toUpperCase() + program.substring(1) + "Test";
 		CtClass ctclass = f.createClass(name);
 		CtPackage p = f.Core().createPackage();
-		 p.setSimpleName("java_programs_test");
-		 ctclass.setParent(p);
+		p.setSimpleName(testPackageName);
+		ctclass.setParent(p);
 		ctclass.setVisibility(ModifierKind.PUBLIC);
 
+		//Creation of test cases
 		int i_nr_testcase = 0;
-		for (String input_i : inputs) {
+		for (String i_input : inputs) {
 
 			CtMethod ctm = f.createMethod();
 			ctm.setSimpleName("test_" + (i_nr_testcase));
@@ -81,23 +89,24 @@ public class QuixBugsTestGenerator {
 
 			ctm.addThrownType(f.createCtTypeReference(Exception.class));
 
-			JsonArray jelement = (JsonArray) new JsonParser().parse(input_i);
+			JsonArray jelement = (JsonArray) new JsonParser().parse(i_input);
 			JsonElement jsonInput = jelement.get(0);
 			JsonElement jsonOutPutExpected = jelement.get(1);
-			String expected = QuixFixLauncher.removeSymbols(jsonOutPutExpected.toString());
+			String expected = QuixFixOracleHelper.removeSymbols(jsonOutPutExpected.toString());
 
-			Type[] parametersTypes = getTypesOfParameters(program, program.toUpperCase(), packageName);
+			Type[] parametersTypes = getTypesOfParameters(program, program.toUpperCase(), subjectsPakcageName);
 
-			Class returnType = getReturnType(program, program.toUpperCase(), packageName);
+			Class returnType = getReturnType(program, program.toUpperCase(), subjectsPakcageName);
 			boolean isOutputDecimal = returnType.getSimpleName().toLowerCase().equals("double");
 
 			CtCodeSnippetStatement stmtInvProgramUnderRepair = f.Core().createCodeSnippetStatement();
 			stmtInvProgramUnderRepair.setValue(
-					returnType.getCanonicalName() + " result = " + packageName + "." + program.toUpperCase() + "."
+					returnType.getCanonicalName() + " result = " + subjectsPakcageName + "." + program.toUpperCase() + "."
 							+ program.toLowerCase() + "(" + (getParametersString(parametersTypes, jsonInput)) + ")");
 
 			block.addStatement(stmtInvProgramUnderRepair);
 
+			//If the output is a primitive or a wrapper number, we compare them directlu
 			if (isNumber(returnType) || returnType.isPrimitive()) {
 				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
 				if (returnType.getSimpleName().toLowerCase().equals("double")) {
@@ -110,23 +119,27 @@ public class QuixBugsTestGenerator {
 				}
 				block.addStatement(stmtAssert);
 
-			} else {
+			} else {//If the output is not a Number nor primitive, we transform it to string a compare them.
 				CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
 
-				stmtCall.setValue("String resultFormatted = " + QuixFixLauncher.class.getCanonicalName() + ".format("
+				stmtCall.setValue("String resultFormatted = " + QuixFixOracleHelper.class.getCanonicalName() + ".format("
 						+ "result," + (!isOutputDecimal) + ")");
 				block.addStatement(stmtCall);
 				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
 				stmtAssert.setValue("org.junit.Assert.assertEquals(" + "\""
-						+ QuixFixLauncher.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
+						+ QuixFixOracleHelper.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
 				block.addStatement(stmtAssert);
 			}
+			
 			AnnotationFactory af = f.Annotation();
-			af.annotate(ctm, org.junit.Test.class, "timeout", TIMEOUT);
+			af.annotate(ctm, org.junit.Test.class, "timeout", getTimeOut(program, i_nr_testcase));
+
+			if (TEST_T_ADD_IGNORE.contains(program.toUpperCase() + i_nr_testcase)) {
+				af.annotate(ctm, Ignore.class);
+			}
 			i_nr_testcase++;
 		}
-		System.out.println("Class :\n" + ctclass);
-
+		//We configure the output and compile the tests generated
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.setSourceOutputDirectory(outputSrcDirectory);
 		comp.getFactory().getEnvironment().setShouldCompile(true);
@@ -135,15 +148,18 @@ public class QuixBugsTestGenerator {
 		JDTBasedSpoonCompiler jdtSpoonModelBuilder = new JDTBasedSpoonCompiler(f);
 		jdtSpoonModelBuilder.setSourceOutputDirectory(outputSrcDirectory);
 		jdtSpoonModelBuilder.generateProcessedSourceFiles(OutputType.COMPILATION_UNITS);
-		// jdtSpoonModelBuilder.setBinaryOutputDirectory(outputBinDirectory);
 		jdtSpoonModelBuilder.compile(InputType.CTTYPES);
 		jdtSpoonModelBuilder.generateProcessedSourceFiles(OutputType.CLASSES);
 
+		System.out.println("Generated test cases stored at " + outputSrcDirectory);
 	}
 
+	/**
+	 * Check if the type is a Number (Wrapper or primitive)
+	 */
 	public boolean isNumber(Class type) {
-
-		return Number.class.isAssignableFrom(type);
+		return Number.class.isAssignableFrom(type) || (type.isPrimitive() && (type.getSimpleName().equals("double")
+				|| type.getSimpleName().equals("int") || type.getSimpleName().equals("float")));
 	}
 
 	/**
@@ -175,6 +191,14 @@ public class QuixBugsTestGenerator {
 		return parameterStr.substring(0, parameterStr.length() - 1);
 	}
 
+	/**
+	 * By Sophie Ye, and refactored. I changed to allow recursivity in data
+	 * conversion.
+	 * 
+	 * @param types
+	 * @param input
+	 * @return
+	 */
 	private static String getParameterObject(JsonElement jsonElement, String thisType) {
 		String parameterStr = "";
 		if ("java.util.ArrayList".equals(thisType)) {
@@ -205,7 +229,10 @@ public class QuixBugsTestGenerator {
 	}
 
 	/**
-	 * First argument: folder where tests are written
+	 * Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3:
+	 * package of the tests to generate ; Arg 4: package of buggy subject");Arg
+	 * 5: each test in one folder (Default false)
+	 * 
 	 * 
 	 * @param args
 	 * @throws Exception
@@ -215,11 +242,11 @@ public class QuixBugsTestGenerator {
 		String ROOT_DIR = null;
 		String ROOT_SOURCES_DIR = null;
 
-		String packageName = null;
-
+		String testPackageName = null;
+		String subjectPackageName = null;
 		System.out.println(
-				"Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3: package of buggy subject");
-
+				"Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3: package of the tests to generate ; Arg 4: package of buggy subject; Arg 5: each test in one folder (Default false)");
+		boolean oneFolderPerProject = false;
 		if (args.length > 0) {
 
 			File froot = new File(args[0]);
@@ -246,9 +273,21 @@ public class QuixBugsTestGenerator {
 
 		if (args.length >= 3) {
 
-			packageName = args[2];
+			subjectPackageName = args[2];
 		} else {
-			packageName = "correct_java_programs";
+			subjectPackageName = "correct_java_programs";
+		}
+
+		if (args.length >= 4) {
+
+			testPackageName = args[3];
+		} else {
+			testPackageName = "java_programs_test";
+		}
+
+		if (args.length >= 5) {
+
+			oneFolderPerProject = Boolean.parseBoolean(args[4]);
 		}
 
 		String[] names = new String[] { "bitcount", "bucketsort",
@@ -266,10 +305,10 @@ public class QuixBugsTestGenerator {
 
 			String out = ROOT_SOURCES_DIR;
 			QuixBugsTestGenerator ct = new QuixBugsTestGenerator();
-			ct.createTestCase(tests, programToExecute, out, packageName);
+			ct.createTestCases(tests, programToExecute, out, testPackageName, subjectPackageName, oneFolderPerProject);
 
 		}
-
+		System.out.println("End");
 	}
 
 	/**
@@ -296,6 +335,16 @@ public class QuixBugsTestGenerator {
 		return s;
 	}
 
+	/**
+	 * Returns types of the parameters of a method which name is given as
+	 * parameter
+	 * 
+	 * @param methodName
+	 * @param className
+	 * @param packageName
+	 * @return
+	 * @throws Exception
+	 */
 	public static Type[] getTypesOfParameters(String methodName, String className, String packageName)
 			throws Exception {
 		// Get parameter type for class method.
@@ -314,9 +363,18 @@ public class QuixBugsTestGenerator {
 		return null;
 	}
 
+	/**
+	 * Returns the *return* type of the parameters of a method which name is
+	 * given as parameter
+	 * 
+	 * @param methodName
+	 * @param className
+	 * @param packageName
+	 * @return
+	 * @throws Exception
+	 */
 	public static Class getReturnType(String methodName, String className, String packageName) throws Exception {
-		// Get parameter type for class method.
-		// try {
+
 		Class target_class = Class.forName(packageName + "." + className);
 		Method[] method = target_class.getDeclaredMethods();
 
@@ -336,6 +394,22 @@ public class QuixBugsTestGenerator {
 			return DELTAS_TESTS_SQRT[nrTestcase];
 		} else {
 			return DELTA_FLOAT_COMPARISON;
+		}
+
+	}
+
+	/**
+	 * Some special timeouts for given methods
+	 * 
+	 * @param program
+	 * @param nrTestcase
+	 * @return
+	 */
+	private static int getTimeOut(String program, int nrTestcase) {
+		if (program.toLowerCase().equals("levenshtein") && nrTestcase == 3) {
+			return 40000;
+		} else {
+			return TIMEOUT;
 		}
 
 	}

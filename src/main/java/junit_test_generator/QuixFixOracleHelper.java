@@ -6,7 +6,7 @@ package junit_test_generator;
  * @author Matias Martinez
  *
  */
-public class QuixFixLauncher {
+public class QuixFixOracleHelper {
 
 	public static String format(Object out, boolean cutDecimal) {
 		Object jsonOutObtained = transformToString(out, cutDecimal);
