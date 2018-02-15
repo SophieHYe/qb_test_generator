@@ -232,14 +232,6 @@ public class QuixBugsTestGenerator {
 		return parameterStr;
 	}
 
-	// create Options object
-	
-
-	// add t option
-
-	
-	
-	
 	/**
 	
 	 * @param args
@@ -277,7 +269,7 @@ public class QuixBugsTestGenerator {
 		else {
 			ROOT_DIR = new File(Thread.currentThread().getContextClassLoader().getResource("").getPath())
 					.getParentFile().getParent();
-			ROOT_SOURCES_DIR = ROOT_DIR + "/src/test/java/";
+			ROOT_SOURCES_DIR = ROOT_DIR + "/src/main/java/";
 		}
 		String DIR_JSON = null;
 
