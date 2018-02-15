@@ -9,6 +9,10 @@ import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.cli.CommandLine;
+import org.apache.commons.cli.CommandLineParser;
+import org.apache.commons.cli.DefaultParser;
+import org.apache.commons.cli.Options;
 import org.junit.Ignore;
 
 import com.google.gson.JsonArray;
@@ -228,28 +232,41 @@ public class QuixBugsTestGenerator {
 		return parameterStr;
 	}
 
+	// create Options object
+	
+
+	// add t option
+
+	
+	
+	
 	/**
-	 * Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3:
-	 * package of the tests to generate ; Arg 4: package of buggy subject");Arg
-	 * 5: each test in one folder (Default false)
-	 * 
-	 * 
+	
 	 * @param args
 	 * @throws Exception
 	 */
 	public static void main(String args[]) throws Exception {
-
+		Options options = new Options();
+		options.addOption("rootdir", true, "path to the root dir where sources of buggy programs are found");
+		options.addOption("testdestination", true, "path to the folder where tests will be written");
+		options.addOption("programpackage", true, "package name of the programs under analysis");
+		options.addOption("testpackage", true, "package name of the generated 	tests");
+		options.addOption("onefolderperprogram", false, "each tests goes in a separate folder");
+		
+		CommandLineParser parser = new DefaultParser();
+		CommandLine cmd = parser.parse( options, args);
+		
 		String ROOT_DIR = null;
 		String ROOT_SOURCES_DIR = null;
 
 		String testPackageName = null;
 		String subjectPackageName = null;
-		System.out.println(
-				"Usage: Argument 1: Root dir, Arg 2: path to folder of JSON files; Arg 3: package of the tests to generate ; Arg 4: package of buggy subject; Arg 5: each test in one folder (Default false)");
 		boolean oneFolderPerProject = false;
-		if (args.length > 0) {
+		
+		
+		if (cmd.hasOption("rootdir")) {
 
-			File froot = new File(args[0]);
+			File froot = new File(cmd.getOptionValue("rootdir"));
 			if (!froot.exists()) {
 				throw new IllegalArgumentException("File not found " + froot.getAbsolutePath());
 			}
@@ -264,30 +281,30 @@ public class QuixBugsTestGenerator {
 		}
 		String DIR_JSON = null;
 
-		if (args.length >= 2) {
+		if (cmd.hasOption("testdestination")) {
 
 			DIR_JSON = args[1];
 		} else {
 			DIR_JSON = ROOT_DIR + "/src/test/resources/json_testcases/";
 		}
 
-		if (args.length >= 3) {
+		if (cmd.hasOption("programpackage")) {
 
-			subjectPackageName = args[2];
+			subjectPackageName = cmd.getOptionValue("programpackage");
 		} else {
-			subjectPackageName = "correct_java_programs";
+			subjectPackageName = "java_programs";
 		}
 
-		if (args.length >= 4) {
+		if (cmd.hasOption("testpackage")) {
 
-			testPackageName = args[3];
+			testPackageName = cmd.getOptionValue("testpackage");
 		} else {
 			testPackageName = "java_programs_test";
 		}
 
-		if (args.length >= 5) {
+		if (cmd.hasOption("onefolderperprogram")) {
 
-			oneFolderPerProject = Boolean.parseBoolean(args[4]);
+			oneFolderPerProject = Boolean.parseBoolean(cmd.getOptionValue("onefolderperprogram"));
 		}
 
 		String[] names = new String[] { "bitcount", "bucketsort",

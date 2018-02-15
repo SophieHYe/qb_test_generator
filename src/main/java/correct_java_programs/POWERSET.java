@@ -27,7 +27,6 @@ public class POWERSET {
 				r.add(first);
 				r.addAll(subset);
 				to_add.add(r);
-
 			}
 
 			output.addAll(to_add);
