@@ -1,7 +1,7 @@
 # QuixBugs generator
 
-Tests generator of QuixBugs fix:
-[QuixFix](https://github.com/jkoppel/QuixBugs/)
+Tests generator of buggy and correct Java programs from QuixBugs:
+[QuixBugs](https://github.com/jkoppel/QuixBugs/)
 
 ## Generated test cases
 
