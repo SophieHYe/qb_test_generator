@@ -1,8 +1,10 @@
 package junit_test_generator;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Type;
@@ -13,6 +15,7 @@ import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
 import org.apache.commons.cli.DefaultParser;
 import org.apache.commons.cli.Options;
+import org.apache.commons.io.FileUtils;
 import org.junit.Ignore;
 
 import com.google.gson.JsonArray;
@@ -49,8 +52,8 @@ public class QuixBugsTestGenerator {
 	public static List<String> TEST_T_ADD_IGNORE = java.util.Arrays.asList("LEVENSHTEIN3");
 
 	@SuppressWarnings({ "rawtypes", "unchecked" })
-	public void createTestCases(List<String> inputs, String program, String output, String testPackageName,
-			String subjectsPakcageName, boolean oneFolderPerProgram) throws Exception {
+	public void createTestCases(String ROOT_DIR, List<String> inputs, String program, String output,
+			String testPackageName, String subjectsPakcageName, boolean oneFolderPerProgram) throws Exception {
 		System.out.println("generating test case for program : " + program);
 
 		File outputBinDirectory = new File(
@@ -58,19 +61,22 @@ public class QuixBugsTestGenerator {
 		File outputSrcDirectory = new File(
 				output + ((oneFolderPerProgram) ? (program + File.separator + "src" + File.separator) : ""));
 		outputSrcDirectory.mkdirs();
+
 		if (!outputBinDirectory.exists()) {
 			outputBinDirectory.mkdirs();
 		}
 
+		createOracle(outputSrcDirectory, testPackageName);
+
 		System.out.println("Generating test cases at " + outputSrcDirectory);
-		//Initialization of model
+		// Initialization of model
 		final Launcher comp = new Launcher();
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.getEnvironment().setShouldCompile(true);
 		comp.buildModel();
 		Factory f = (Factory) comp.getFactory();
-		
-		//Creation of test class
+
+		// Creation of test class
 		String name = program.substring(0, 1).toUpperCase() + program.substring(1) + "Test";
 		CtClass ctclass = f.createClass(name);
 		CtPackage p = f.Core().createPackage();
@@ -78,7 +84,7 @@ public class QuixBugsTestGenerator {
 		ctclass.setParent(p);
 		ctclass.setVisibility(ModifierKind.PUBLIC);
 
-		//Creation of test cases
+		// Creation of test cases
 		int i_nr_testcase = 0;
 		for (String i_input : inputs) {
 
@@ -104,13 +110,14 @@ public class QuixBugsTestGenerator {
 			boolean isOutputDecimal = returnType.getSimpleName().toLowerCase().equals("double");
 
 			CtCodeSnippetStatement stmtInvProgramUnderRepair = f.Core().createCodeSnippetStatement();
-			stmtInvProgramUnderRepair.setValue(
-					returnType.getCanonicalName() + " result = " + subjectsPakcageName + "." + program.toUpperCase() + "."
-							+ program.toLowerCase() + "(" + (getParametersString(parametersTypes, jsonInput)) + ")");
+			stmtInvProgramUnderRepair.setValue(returnType.getCanonicalName() + " result = " + subjectsPakcageName + "."
+					+ program.toUpperCase() + "." + program.toLowerCase() + "("
+					+ (getParametersString(parametersTypes, jsonInput)) + ")");
 
 			block.addStatement(stmtInvProgramUnderRepair);
 
-			//If the output is a primitive or a wrapper number, we compare them directlu
+			// If the output is a primitive or a wrapper number, we compare them
+			// directlu
 			if (isNumber(returnType) || returnType.isPrimitive()) {
 				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
 				if (returnType.getSimpleName().toLowerCase().equals("double")) {
@@ -123,18 +130,20 @@ public class QuixBugsTestGenerator {
 				}
 				block.addStatement(stmtAssert);
 
-			} else {//If the output is not a Number nor primitive, we transform it to string a compare them.
+			} else {// If the output is not a Number nor primitive, we transform
+					// it to string a compare them.
 				CtCodeSnippetStatement stmtCall = f.Core().createCodeSnippetStatement();
 
-				stmtCall.setValue("String resultFormatted = " + QuixFixOracleHelper.class.getCanonicalName() + ".format("
-						+ "result," + (!isOutputDecimal) + ")");
+				stmtCall.setValue(
+						"String resultFormatted = " + testPackageName + "." + QuixFixOracleHelper.class.getSimpleName()
+								+ ".format(" + "result," + (!isOutputDecimal) + ")");
 				block.addStatement(stmtCall);
 				CtCodeSnippetStatement stmtAssert = f.Core().createCodeSnippetStatement();
 				stmtAssert.setValue("org.junit.Assert.assertEquals(" + "\""
 						+ QuixFixOracleHelper.format(expected, (!isOutputDecimal)) + "\"" + ", resultFormatted)");
 				block.addStatement(stmtAssert);
 			}
-			
+
 			AnnotationFactory af = f.Annotation();
 			af.annotate(ctm, org.junit.Test.class, "timeout", getTimeOut(program, i_nr_testcase));
 
@@ -143,7 +152,7 @@ public class QuixBugsTestGenerator {
 			}
 			i_nr_testcase++;
 		}
-		//We configure the output and compile the tests generated
+		// We configure the output and compile the tests generated
 		comp.setBinaryOutputDirectory(outputBinDirectory);
 		comp.setSourceOutputDirectory(outputSrcDirectory);
 		comp.getFactory().getEnvironment().setShouldCompile(true);
@@ -156,6 +165,24 @@ public class QuixBugsTestGenerator {
 		jdtSpoonModelBuilder.generateProcessedSourceFiles(OutputType.CLASSES);
 
 		System.out.println("Generated test cases stored at " + outputSrcDirectory);
+	}
+
+	private boolean createOracle(File outputSrcDirectory, String testPackage) throws IOException {
+		boolean created = false;
+		File oracleFile = new File((outputSrcDirectory).getAbsoluteFile() + File.separator
+				+ QuixFixOracleHelper.class.getCanonicalName().replaceAll("\\.", File.separator) + ".java");
+		if (oracleFile.exists()) {
+
+			File destinationOracle = new File((outputSrcDirectory).getAbsoluteFile() + File.separator + testPackage
+					+ File.separator + QuixFixOracleHelper.class.getSimpleName() + ".java");
+			if (!destinationOracle.exists()) {
+				System.out.println("Creating oracle java file at " + destinationOracle);
+				FileUtils.copyFile(oracleFile, destinationOracle);
+				this.replaceImport(destinationOracle, testPackage);
+			}
+			created = true;
+		}
+		return created;
 	}
 
 	/**
@@ -233,7 +260,7 @@ public class QuixBugsTestGenerator {
 	}
 
 	/**
-	
+	 * 
 	 * @param args
 	 * @throws Exception
 	 */
@@ -244,18 +271,17 @@ public class QuixBugsTestGenerator {
 		options.addOption("programpackage", true, "package name of the programs under analysis");
 		options.addOption("testpackage", true, "package name of the generated 	tests");
 		options.addOption("onefolderperprogram", false, "each tests goes in a separate folder");
-		
+
 		CommandLineParser parser = new DefaultParser();
-		CommandLine cmd = parser.parse( options, args);
-		
+		CommandLine cmd = parser.parse(options, args);
+
 		String ROOT_DIR = null;
 		String ROOT_SOURCES_DIR = null;
 
 		String testPackageName = null;
 		String subjectPackageName = null;
 		boolean oneFolderPerProject = false;
-		
-		
+
 		if (cmd.hasOption("rootdir")) {
 
 			File froot = new File(cmd.getOptionValue("rootdir"));
@@ -314,7 +340,8 @@ public class QuixBugsTestGenerator {
 
 			String out = ROOT_SOURCES_DIR;
 			QuixBugsTestGenerator ct = new QuixBugsTestGenerator();
-			ct.createTestCases(tests, programToExecute, out, testPackageName, subjectPackageName, oneFolderPerProject);
+			ct.createTestCases(ROOT_DIR, tests, programToExecute, out, testPackageName, subjectPackageName,
+					oneFolderPerProject);
 
 		}
 		System.out.println("End");
@@ -421,6 +448,33 @@ public class QuixBugsTestGenerator {
 			return TIMEOUT;
 		}
 
+	}
+
+	public void replaceImport(File fileOracle, String testPackage) {
+		List<String> lines = new ArrayList<String>();
+		String line = null;
+		String lineSep = System.lineSeparator();
+		try {
+
+			FileReader fr = new FileReader(fileOracle);
+			BufferedReader br = new BufferedReader(fr);
+			while ((line = br.readLine()) != null) {
+				if (line.trim().startsWith("package"))
+					line = "package " + testPackage + ";";
+				lines.add(line + lineSep);
+			}
+			fr.close();
+			br.close();
+
+			FileWriter fw = new FileWriter(fileOracle);
+			BufferedWriter out = new BufferedWriter(fw);
+			for (String s : lines)
+				out.write(s);
+			out.flush();
+			out.close();
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
 	}
 
 }
